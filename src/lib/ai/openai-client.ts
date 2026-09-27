@@ -1,11 +1,13 @@
 import { OpenAI } from 'openai'
 
-if (!process.env.OPENAI_API_KEY) {
-  throw new Error('OPENAI_API_KEY not configured')
+if (!process.env.GROQ_API_KEY) {
+  throw new Error('GROQ_API_KEY not configured')
 }
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+// Groq is OpenAI-compatible, using their API format
+const groq = new OpenAI({
+  apiKey: process.env.GROQ_API_KEY,
+  baseURL: 'https://api.groq.com/openai/v1',
 })
 
 export interface EmailClassificationResult {
@@ -40,8 +42,8 @@ ${body}
 JSON Response:`
 
   try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+    const response = await groq.chat.completions.create({
+      model: 'mixtral-8x7b-32768', // Fast Groq model for classification
       messages: [
         {
           role: 'user',
@@ -50,7 +52,6 @@ JSON Response:`
       ],
       temperature: 0.3,
       max_tokens: 300,
-      response_format: { type: 'json_object' },
     })
 
     const content = response.choices[0]?.message?.content
@@ -109,8 +110,8 @@ ${emailBody}
 Generate only the reply body (no "To:", "Subject:", or "From:" headers). Return as plain text.`
 
   try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+    const response = await groq.chat.completions.create({
+      model: 'mixtral-8x7b-32768', // Fast Groq model for reply generation
       messages: [
         {
           role: 'user',
@@ -151,8 +152,8 @@ ${emailsText}
 Summary:`
 
   try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+    const response = await groq.chat.completions.create({
+      model: 'mixtral-8x7b-32768', // Fast Groq model for summarization
       messages: [
         {
           role: 'user',
@@ -200,8 +201,8 @@ ${body}
 JSON Response:`
 
   try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+    const response = await groq.chat.completions.create({
+      model: 'mixtral-8x7b-32768', // Fast Groq model for lead extraction
       messages: [
         {
           role: 'user',
@@ -210,7 +211,6 @@ JSON Response:`
       ],
       temperature: 0.3,
       max_tokens: 400,
-      response_format: { type: 'json_object' },
     })
 
     const content = response.choices[0]?.message?.content
