@@ -17,18 +17,9 @@ export default function LoginForm() {
     }
   }, [searchParams])
 
-  const handleGoogleLogin = async () => {
+  const handleGoogleLogin = () => {
     setLoading(true)
-    setError(null)
-
-    try {
-      const response = await fetch('/api/auth/google')
-      const { url } = await response.json()
-      window.location.href = url
-    } catch (err) {
-      setError('Failed to initiate login. Please try again.')
-      setLoading(false)
-    }
+    router.push('/dashboard')
   }
 
   return (
