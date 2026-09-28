@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { disconnectGmail } from '@/server/actions/auth'
+import { disconnectGmail } from '@/server/actions/gmail'
 
 export default function ConnectGmail({ connected, googleReady }: { connected: boolean; googleReady: boolean }) {
   const router = useRouter()
@@ -55,7 +55,7 @@ export default function ConnectGmail({ connected, googleReady }: { connected: bo
             </p>
             {googleReady ? (
               <a
-                href="/api/auth/google?mode=connect"
+                href="/api/auth/google"
                 className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-300 rounded-lg px-4 py-3 font-medium text-gray-700 hover:bg-gray-50 transition"
               >
                 Continue with Google

@@ -6,23 +6,20 @@ import { getCurrentSession } from '@/lib/auth/session'
 
 export const dynamic = 'force-dynamic'
 
+// Starts "Continue with Google" to connect Gmail to the current workspace
 export async function GET(request: NextRequest) {
-  const mode = request.nextUrl.searchParams.get('mode') === 'connect' ? 'connect' : 'login'
   const origin = getOrigin(request)
-  const backTo = mode === 'connect' ? '/settings' : '/login'
-
-  const fail = (message: string) =>
-    NextResponse.redirect(`${origin}${backTo}?error=${encodeURIComponent(message)}`)
 
   if (!isGoogleConfigured()) {
-    return fail('Google sign-in is not configured yet. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in the deployment settings.')
+    const message = 'Google is not configured yet. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in the deployment settings.'
+    return NextResponse.redirect(`${origin}/settings?error=${encodeURIComponent(message)}`)
   }
 
-  if (mode === 'connect' && !(await getCurrentSession())) {
-    return NextResponse.redirect(`${origin}/login`)
+  if (!(await getCurrentSession())) {
+    return NextResponse.redirect(`${origin}/api/guest?next=/settings`)
   }
 
-  const state = `${mode}.${randomUUID()}`
+  const state = randomUUID()
   const response = NextResponse.redirect(generateAuthUrl(getGoogleRedirectUri(request), state))
   response.cookies.set('oauth-state', state, {
     httpOnly: true,
