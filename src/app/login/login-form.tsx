@@ -4,10 +4,8 @@ import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 
-// Google sign-in is temporarily disabled until a production Google OAuth
-// client is configured. Flip this back to true once GOOGLE_CLIENT_ID /
-// GOOGLE_CLIENT_SECRET are set to real values in the deployment environment.
-const GOOGLE_LOGIN_ENABLED = false
+// Demo mode: the sign-in button skips Google OAuth and opens the dashboard directly.
+const GOOGLE_LOGIN_ENABLED = true
 
 export default function LoginForm() {
   const router = useRouter()
