@@ -1,7 +1,10 @@
+import AppShell from '@/components/app-shell'
+
 export const dynamic = 'force-dynamic'
 
 export default function EmailsPage() {
   return (
+    <AppShell active="emails">
     <div>
       <h1 className="text-3xl font-bold text-gray-900 mb-4">Email Inbox</h1>
       <p className="text-gray-600 mb-8">Your Gmail emails will appear here once Gmail is connected.</p>
@@ -9,5 +12,6 @@ export default function EmailsPage() {
         <p className="text-gray-500">No emails yet. Connect your Gmail account to get started.</p>
       </div>
     </div>
+    </AppShell>
   )
 }

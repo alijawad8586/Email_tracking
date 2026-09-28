@@ -1,252 +1,125 @@
 'use server'
 
-import { cookies } from 'next/headers'
-import { jwtVerify, SignJWT } from 'jose'
-import { generateAuthUrl, handleGoogleCallback, getGoogleUserInfo, refreshAccessToken } from '@/lib/auth/google-oauth'
-import { getServiceSupabaseClient } from '@/lib/db/client'
+import { redirect } from 'next/navigation'
+import { getAnonSupabaseClient, getServiceSupabaseClient } from '@/lib/db/client'
+import { clearSession, createSession, getCurrentSession } from '@/lib/auth/session'
 
-const JWT_SECRET = new TextEncoder().encode(process.env.NEXTAUTH_SECRET || 'change-me')
-
-export interface SessionToken {
-  userId: string
-  email: string
-  googleId: string
-  iat: number
-  exp: number
+export interface ActionResult {
+  success: boolean
+  error?: string
 }
 
-/**
- * Generate JWT session token
- */
-async function generateSessionToken(userId: string, email: string, googleId: string): Promise<string> {
-  const jwt = await new SignJWT({ userId, email, googleId })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime('30d')
-    .sign(JWT_SECRET)
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-  return jwt
-}
-
-/**
- * Verify JWT session token
- */
-export async function verifySessionToken(token: string): Promise<SessionToken | null> {
-  try {
-    const verified = await jwtVerify(token, JWT_SECRET)
-    const payload = verified.payload as unknown as SessionToken
-    return payload
-  } catch (error) {
-    return null
+function friendlyError(error: unknown): string {
+  const message = error instanceof Error ? error.message : ''
+  if (message.startsWith('Missing ') || message.includes('NEXTAUTH_SECRET')) {
+    return `Server is not configured: ${message}`
   }
+  console.error('Auth action error:', error)
+  return 'Something went wrong. Please try again.'
 }
 
-/**
- * Get current session
- */
-export async function getCurrentSession(): Promise<SessionToken | null> {
-  const cookieStore = await cookies()
-  const token = cookieStore.get('auth-token')?.value
-
-  if (!token) {
-    return null
-  }
-
-  return verifySessionToken(token)
-}
-
-/**
- * Get Google login URL
- */
-export async function getGoogleLoginUrl(): Promise<string> {
-  return generateAuthUrl()
-}
-
-/**
- * Handle Google OAuth callback - kept for reference
- */
-export async function handleGoogleOAuthCallback(code: string): Promise<{ success: boolean; error?: string }> {
-  try {
-    // OAuth handling is done in the API route
-    return {
-      success: true,
-    }
-  } catch (error) {
-    console.error('OAuth callback error:', error)
-    return {
-      success: false,
-      error: 'Failed to process Google OAuth callback',
-    }
-  }
-}
-
-/**
- * Login with Google (to be called from the callback)
- */
-export async function loginWithGoogle(code: string) {
-  const supabase = getServiceSupabaseClient()
+export async function signUpWithPassword(email: string, password: string, fullName: string): Promise<ActionResult> {
+  const cleanEmail = email.trim().toLowerCase()
+  if (!EMAIL_RE.test(cleanEmail)) return { success: false, error: 'Please enter a valid email address' }
+  if (password.length < 8) return { success: false, error: 'Password must be at least 8 characters' }
 
   try {
-    // Exchange code for tokens and get user info
-    const result = await handleGoogleCallback(code, '')
+    const supabase = getServiceSupabaseClient()
+    const name = fullName.trim().slice(0, 100) || null
 
-    // Get the user profile we just created
-    const { data: profile, error: profileError } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('email', result.email)
-      .single()
-
-    if (profileError || !profile) {
-      throw new Error('Failed to create user profile')
-    }
-
-    // Generate session JWT
-    const sessionToken = await generateSessionToken(profile.id, profile.email, profile.google_id)
-
-    // Set secure HTTP-only cookie
-    const cookieStore = await cookies()
-    cookieStore.set('auth-token', sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 30, // 30 days
-      path: '/',
+    const { data, error } = await supabase.auth.admin.createUser({
+      email: cleanEmail,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: name },
     })
-
-    return {
-      success: true,
-      userId: profile.id,
-    }
-  } catch (error) {
-    console.error('Login error:', error)
-    throw error
-  }
-}
-
-/**
- * Demo login: no verification, any email creates a session cookie
- */
-export async function demoLogin(email: string): Promise<{ success: boolean; error?: string }> {
-  const clean = email.trim().toLowerCase()
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
-    return { success: false, error: 'Please enter a valid email address' }
-  }
-
-  const token = await generateSessionToken('demo-user', clean, 'demo')
-  const cookieStore = await cookies()
-  cookieStore.set('auth-token', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 60 * 60 * 24 * 7,
-    path: '/',
-  })
-  return { success: true }
-}
-
-/**
- * Logout
- */
-export async function logout(): Promise<void> {
-  const cookieStore = await cookies()
-  cookieStore.delete('auth-token')
-}
-
-/**
- * Refresh Gmail access token if expired
- */
-export async function refreshGmailToken(userId: string): Promise<{ success: boolean; error?: string }> {
-  const supabase = getServiceSupabaseClient()
-
-  try {
-    // Get user profile
-    const { data: profile, error } = await supabase
-      .from('user_profiles')
-      .select('gmail_refresh_token_encrypted, gmail_token_expires_at')
-      .eq('id', userId)
-      .single()
-
-    if (error || !profile?.gmail_refresh_token_encrypted) {
-      return {
-        success: false,
-        error: 'No Gmail connection found',
+    if (error || !data.user) {
+      if (error?.message.toLowerCase().includes('already')) {
+        return { success: false, error: 'An account with this email already exists. Please sign in.' }
       }
+      throw error ?? new Error('Failed to create user')
     }
 
-    // Check if token is expired
-    const expiresAt = new Date(profile.gmail_token_expires_at)
-    if (expiresAt > new Date()) {
-      return { success: true }
-    }
-
-    // Refresh the token
-    const { decryptToken } = await import('@/lib/utils/encryption')
-    const refreshToken = decryptToken(profile.gmail_refresh_token_encrypted)
-
-    const { accessToken, expiresAt: newExpiresAt } = await refreshAccessToken(refreshToken)
-
-    // Update database
-    const { encryptToken } = await import('@/lib/utils/encryption')
-    const encryptedAccessToken = encryptToken(accessToken)
-
-    await supabase
+    const { error: profileError } = await supabase
       .from('user_profiles')
-      .update({
-        gmail_access_token_encrypted: encryptedAccessToken,
-        gmail_token_expires_at: newExpiresAt?.toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', userId)
+      .insert({ id: data.user.id, email: cleanEmail, full_name: name })
+    if (profileError) {
+      await supabase.auth.admin.deleteUser(data.user.id)
+      throw profileError
+    }
 
+    await createSession(data.user.id, cleanEmail, null)
     return { success: true }
   } catch (error) {
-    console.error('Error refreshing Gmail token:', error)
-    return {
-      success: false,
-      error: 'Failed to refresh Gmail connection',
-    }
+    return { success: false, error: friendlyError(error) }
   }
 }
 
-/**
- * Get Gmail access token (with auto-refresh if expired)
- */
-export async function getGmailAccessToken(userId: string): Promise<string> {
-  const supabase = getServiceSupabaseClient()
-
-  const { data: profile, error } = await supabase
-    .from('user_profiles')
-    .select('gmail_access_token_encrypted, gmail_token_expires_at')
-    .eq('id', userId)
-    .single()
-
-  if (error || !profile?.gmail_access_token_encrypted) {
-    throw new Error('Gmail not connected')
+export async function signInWithPassword(email: string, password: string): Promise<ActionResult> {
+  const cleanEmail = email.trim().toLowerCase()
+  if (!EMAIL_RE.test(cleanEmail) || !password) {
+    return { success: false, error: 'Please enter your email and password' }
   }
 
-  // Check if token is expired
-  const expiresAt = new Date(profile.gmail_token_expires_at)
-  if (expiresAt <= new Date()) {
-    // Refresh token
-    await refreshGmailToken(userId)
-
-    // Get the new token
-    const { data: updated } = await supabase
-      .from('user_profiles')
-      .select('gmail_access_token_encrypted')
-      .eq('id', userId)
-      .single()
-
-    if (!updated?.gmail_access_token_encrypted) {
-      throw new Error('Failed to refresh Gmail token')
+  try {
+    const { data, error } = await getAnonSupabaseClient().auth.signInWithPassword({
+      email: cleanEmail,
+      password,
+    })
+    if (error && error.status !== 400) {
+      console.error('Supabase sign-in error:', error)
+      return { success: false, error: 'Could not reach the sign-in service. Check the server configuration.' }
+    }
+    if (error || !data.user) {
+      return { success: false, error: 'Invalid email or password' }
     }
 
-    const { decryptToken } = await import('@/lib/utils/encryption')
-    return decryptToken(updated.gmail_access_token_encrypted)
-  }
+    const supabase = getServiceSupabaseClient()
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('id, google_id')
+      .eq('id', data.user.id)
+      .maybeSingle()
 
-  // Decrypt and return the access token
-  const { decryptToken } = await import('@/lib/utils/encryption')
-  return decryptToken(profile.gmail_access_token_encrypted)
+    if (!profile) {
+      const { error: insertError } = await supabase
+        .from('user_profiles')
+        .insert({ id: data.user.id, email: cleanEmail })
+      if (insertError) throw insertError
+    }
+
+    await createSession(data.user.id, cleanEmail, profile?.google_id ?? null)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: friendlyError(error) }
+  }
+}
+
+export async function logout(): Promise<void> {
+  await clearSession()
+  redirect('/login')
+}
+
+export async function disconnectGmail(): Promise<ActionResult> {
+  const session = await getCurrentSession()
+  if (!session) return { success: false, error: 'Not signed in' }
+
+  try {
+    const { error } = await getServiceSupabaseClient()
+      .from('user_profiles')
+      .update({
+        gmail_access_token_encrypted: null,
+        gmail_refresh_token_encrypted: null,
+        gmail_token_expires_at: null,
+        gmail_connected: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', session.userId)
+    if (error) throw error
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: friendlyError(error) }
+  }
 }

@@ -1,7 +1,10 @@
+import AppShell from '@/components/app-shell'
+
 export const dynamic = 'force-dynamic'
 
 export default function FollowupsPage() {
   return (
+    <AppShell active="followups">
     <div>
       <h1 className="text-3xl font-bold text-gray-900 mb-4">Follow-ups</h1>
       <p className="text-gray-600 mb-8">Track and manage follow-ups for your leads.</p>
@@ -9,5 +12,6 @@ export default function FollowupsPage() {
         <p className="text-gray-500">No follow-ups scheduled yet.</p>
       </div>
     </div>
+    </AppShell>
   )
 }
