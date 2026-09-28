@@ -125,6 +125,27 @@ export async function loginWithGoogle(code: string) {
 }
 
 /**
+ * Demo login: no verification, any email creates a session cookie
+ */
+export async function demoLogin(email: string): Promise<{ success: boolean; error?: string }> {
+  const clean = email.trim().toLowerCase()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
+    return { success: false, error: 'Please enter a valid email address' }
+  }
+
+  const token = await generateSessionToken('demo-user', clean, 'demo')
+  const cookieStore = await cookies()
+  cookieStore.set('auth-token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 60 * 60 * 24 * 7,
+    path: '/',
+  })
+  return { success: true }
+}
+
+/**
  * Logout
  */
 export async function logout(): Promise<void> {

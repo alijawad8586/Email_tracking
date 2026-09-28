@@ -1,13 +1,14 @@
 import { getCurrentSession } from '@/server/actions/auth'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 
 export const dynamic = 'force-dynamic'
 
 export default async function Dashboard() {
   try {
-    const session = (await getCurrentSession()) || {
-      userId: 'demo-user',
-      email: 'demo@example.com',
+    const session = await getCurrentSession()
+    if (!session) {
+      redirect('/login')
     }
 
     return (
